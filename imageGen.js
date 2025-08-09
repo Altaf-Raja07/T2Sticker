@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 import fetch from "node-fetch";
+import sharp from "sharp";
 
 dotenv.config();
 
@@ -66,3 +67,78 @@ async function generateImageHuggingFace(prompt) {
     console.error("❌ Hugging Face generation failed:", err);
   }
 }
+
+import { createCanvas, loadImage } from "canvas";
+import { removeBackgroundFromImageFile } from "remove.bg";
+
+/**
+ * Converts an uploaded image into a cool sticker with custom text.
+ * @param {string} imagePath - Path to the uploaded image file.
+ * @param {string} customText - Text to overlay on the sticker.
+ * @returns {Object} - Paths for PNG & WEBP sticker.
+ */
+export async function imageToSticker(imagePath, customText) {
+  try {
+    console.log(`🖼️ Creating cool sticker from: ${imagePath}`);
+
+    // Step 1: Remove background using remove.bg API
+    console.log("🪄 Removing background...");
+    const bgRemovedPath = path.join("outputs", `bg_removed_${Date.now()}.png`);
+    await removeBackgroundFromImageFile({
+      path: imagePath,
+      apiKey: process.env.REMOVE_BG_API_KEY,
+      size: "auto",
+      type: "auto",
+      outputFile: bgRemovedPath,
+    });
+
+    // Step 2: Load image into canvas
+    const size = 512;
+    const canvas = createCanvas(size, size);
+    const ctx = canvas.getContext("2d");
+
+    ctx.clearRect(0, 0, size, size);
+    const img = await loadImage(bgRemovedPath);
+
+    // Draw subject
+    ctx.drawImage(img, 0, 0, size, size);
+
+    // Step 3: Add white outline
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "white";
+    ctx.strokeRect(0, 0, size, size);
+
+    // Step 4: Add custom text
+    ctx.font = "bold 40px Arial";
+    ctx.fillStyle = "white";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = 4;
+    ctx.strokeText(customText, size / 2, size - 20);
+    ctx.fillText(customText, size / 2, size - 20);
+
+    // Step 5: Save PNG
+    const outputPath = path.join("outputs", `cool_sticker_${Date.now()}.png`);
+    fs.writeFileSync(outputPath, canvas.toBuffer("image/png"));
+    console.log(`✅ PNG sticker saved to: ${outputPath}`);
+
+    // Step 6: Convert PNG → WEBP
+    const webpPath = outputPath.replace(".png", ".webp");
+    await sharp(outputPath)
+      .webp({ lossless: true })
+      .toFile(webpPath);
+    console.log(`✅ WhatsApp-ready WEBP saved to: ${webpPath}`);
+
+    return {
+      png: path.join("outputs", path.basename(outputPath)),
+      webp: path.join("outputs", path.basename(webpPath))
+    };
+
+  } catch (error) {
+    console.error("❌ Error creating cool sticker:", error);
+  }
+}
+
+
+
