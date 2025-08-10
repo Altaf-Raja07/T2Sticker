@@ -92,38 +92,98 @@ export async function imageToSticker(imagePath, customText) {
       outputFile: bgRemovedPath,
     });
 
-    // Step 2: Load image into canvas
+    // Step 2: Load image and create canvas
     const size = 512;
     const canvas = createCanvas(size, size);
     const ctx = canvas.getContext("2d");
-
     ctx.clearRect(0, 0, size, size);
+
     const img = await loadImage(bgRemovedPath);
 
-    // Draw subject
+    // Step 3: Create shape-following outline
+    const outlineCanvas = createCanvas(size, size);
+    const outlineCtx = outlineCanvas.getContext("2d");
+
+    // Draw the subject in solid white for outline base
+    outlineCtx.drawImage(img, 0, 0, size, size);
+    const imageData = outlineCtx.getImageData(0, 0, size, size);
+
+    // Convert non-transparent pixels to white
+    for (let i = 0; i < imageData.data.length; i += 4) {
+      if (imageData.data[i + 3] > 0) { // alpha > 0 means visible pixel
+        imageData.data[i] = 255;     // R
+        imageData.data[i + 1] = 255; // G
+        imageData.data[i + 2] = 255; // B
+        imageData.data[i + 3] = 255; // A
+      }
+    }
+    outlineCtx.putImageData(imageData, 0, 0);
+
+    // Draw the outline slightly bigger multiple times for thickness
+    ctx.imageSmoothingEnabled = true;
+    const outlineSize = 10; // thickness of the border
+    for (let x = -outlineSize; x <= outlineSize; x++) {
+      for (let y = -outlineSize; y <= outlineSize; y++) {
+        ctx.drawImage(outlineCanvas, x, y, size, size);
+      }
+    }
+
+    // Step 4: Draw the original image on top
     ctx.drawImage(img, 0, 0, size, size);
 
-    // Step 3: Add white outline
-    ctx.lineWidth = 8;
-    ctx.strokeStyle = "white";
-    ctx.strokeRect(0, 0, size, size);
+    // Step 5: Add custom text safely with wrapping
+const maxWidth = size - 40; // max width before wrapping
+let fontSize = 38; // fixed font size for visibility
+ctx.font = `bold ${fontSize}px Arial`;
+ctx.fillStyle = "white";
+ctx.textAlign = "center";
+ctx.textBaseline = "middle";
+ctx.strokeStyle = "black";
+ctx.lineWidth = 4;
 
-    // Step 4: Add custom text
-    ctx.font = "bold 40px Arial";
-    ctx.fillStyle = "white";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    ctx.strokeStyle = "black";
-    ctx.lineWidth = 4;
-    ctx.strokeText(customText, size / 2, size - 20);
-    ctx.fillText(customText, size / 2, size - 20);
+// Function to split text into multiple lines
+function getWrappedLines(context, text, maxWidth) {
+  const words = text.split(" ");
+  let line = "";
+  const lines = [];
+  
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + " ";
+    const metrics = context.measureText(testLine);
+    if (metrics.width > maxWidth && n > 0) {
+      lines.push(line.trim());
+      line = words[n] + " ";
+    } else {
+      line = testLine;
+    }
+  }
+  lines.push(line.trim());
+  return lines;
+}
 
-    // Step 5: Save PNG
+// Get lines first
+const lines = getWrappedLines(ctx, customText, maxWidth);
+const linesCount = lines.length;
+
+// Calculate starting Y so multi-line text is centered vertically near bottom
+const lineHeight = fontSize + 4;
+const startY = size - (linesCount * lineHeight) - 20;
+
+// Draw each line
+lines.forEach((line, i) => {
+  const y = startY + i * lineHeight;
+  ctx.strokeText(line, size / 2, y);
+  ctx.fillText(line, size / 2, y);
+});
+
+
+
+    // Step 6: Save PNG
     const outputPath = path.join("outputs", `cool_sticker_${Date.now()}.png`);
     fs.writeFileSync(outputPath, canvas.toBuffer("image/png"));
     console.log(`✅ PNG sticker saved to: ${outputPath}`);
 
-    // Step 6: Convert PNG → WEBP
+    // Step 7: Convert PNG → WEBP
     const webpPath = outputPath.replace(".png", ".webp");
     await sharp(outputPath)
       .webp({ lossless: true })
@@ -132,13 +192,13 @@ export async function imageToSticker(imagePath, customText) {
 
     return {
       png: path.join("outputs", path.basename(outputPath)),
-      webp: path.join("outputs", path.basename(webpPath))
+      webp: path.join("outputs", path.basename(webpPath)),
     };
-
   } catch (error) {
     console.error("❌ Error creating cool sticker:", error);
   }
 }
+
 
 
 
